@@ -39,8 +39,12 @@ WidgetScrollable {
 
     WidgetFolder {
         caption: qsTr("Wine user root:")
-        tooltip: qsTr("Path to user root folder (drive_c/Users/username) of the Wine/Proton prefix where D2R is installed")
+        tooltip: qsTr("Path to user root folder (drive_c/Users/username) of the Wine/Proton prefix where D2R is installed") + //
+        qsTr("<br>Use a full path, ~ is not expanded.") + //
+        qsTr("<br>Detect! searches umu, Lutris, Heroic, Bottles, Steam and ~/.wine prefixes and fills both this and the input folder; if several prefixes have the game, you choose one.") + //
+        qsTr("<br>On first start this happens automatically when exactly one prefix has the game.")
         isCompact: false
+        showDetect: true
         value_key: root.value_context.userHome
         visible: Qt.platform.os === "linux"
     }
@@ -117,10 +121,29 @@ WidgetScrollable {
         }
 
         Button {
-            text: qsTr("Make shortcut on Desktop")
+            text: Qt.platform.os === "linux" ? qsTr("Make shortcut") : qsTr("Make shortcut on Desktop")
             Layout.preferredWidth: 200
             onClicked: appui.makeShortCut(command_line.text)
         }
+        WidgetHelpIcon {
+            visible: Qt.platform.os === "linux"
+            tooltipText: qsTr("Adds \"Diablo II - <mod> Mod\" to the application menu and to the Desktop.")
+        }
+    }
+
+    WidgetLineEdit {
+        property string preset: appui.runnerPreset(appConfig.userHome.value, !root.isD2R)
+
+        caption: qsTr("Runner template:")
+        tooltip: qsTr("Command the Linux shortcut runs. Leave it empty to use the preset shown in the field.") + //
+        qsTr("<br>{prefix} is the Wine prefix, {exe} the game executable, {args} the command line above.") + //
+        qsTr("<br>Presets: steam for Steam's D2R, umu-run for other Proton prefixes (umu, Lutris with GE-Proton, Battle.net added to Steam).") + //
+        qsTr("<br>Plain Wine prefixes have no preset: write your own, e.g. env WINEPREFIX={prefix} wine {exe} {args}, or use \"Set launch to mod\".") + //
+        qsTr("<br>If D2R says you have not been online for 30 days, start it once from Battle.net in that prefix.")
+        isCompact: false
+        value_key: root.value_context.runnerTemplate
+        placeholderText: preset !== "" ? preset : qsTr("No preset for this Wine prefix: enter a command")
+        visible: Qt.platform.os === "linux"
     }
 
     RowLayout {

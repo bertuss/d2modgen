@@ -12,6 +12,7 @@
 #include <QValidator>
 
 #include "ConfigHandler.hpp"
+#include "WineDetection.hpp"
 
 namespace D2ModGen {
 
@@ -50,8 +51,11 @@ public:
     Q_INVOKABLE void    browseToAppSettings();
     Q_INVOKABLE void    refreshAllSeeds();
     Q_INVOKABLE QString detectPath();
+    Q_INVOKABLE void    detectWine();
+    Q_INVOKABLE void    applyWineMatch(int index);
     Q_INVOKABLE void    setLaunch(QString arg);
     Q_INVOKABLE void    makeShortCut(QString arg);
+    Q_INVOKABLE QString runnerPreset(QString userHome, bool legacy);
 
     Q_INVOKABLE void copyModSettings();
     Q_INVOKABLE void copySaves();
@@ -67,17 +71,20 @@ public:
 signals:
     void statusUpdate(QString status);
     void generateInternal();
+    void winePrefixChoice(QVariantList matches, int preselected);
 
 private:
     void pushUndo(const Mernel::PropertyTree& data);
     void pushUndoCurrent();
     void updateUndoAction();
     void generateFinish();
+    void detectWineOnStartup();
 
 private:
     bool                        m_autoSave = true;
     DelayedTimer*               m_delayTimer;
     QList<Mernel::PropertyTree> m_undo;
+    std::vector<WineGameMatch>  m_wineMatches;
     ConfigHandler&              m_configHandler;
 };
 

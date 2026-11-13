@@ -6,6 +6,7 @@
 #include "UIController.hpp"
 
 #include "FileIOUtils.hpp"
+#include "Shortcut.hpp"
 
 #include "ConfigHandler.hpp"
 #include "Logger.hpp"
@@ -67,6 +68,18 @@ QString getUserHomeDefault()
     return home;
 }
 
+bool isExistingDir(const std::string& path)
+{
+    return !path.empty() && QFileInfo(QString::fromStdString(path)).isDir();
+}
+
+std::vector<WineGameMatch> findWineGamesFor(const AppConfig& cfg)
+{
+    const auto kind = cfg.m_versionMajor == 1 ? GameKind::Resurrected : GameKind::Legacy;
+    const auto home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toStdString();
+    return findWineGames(kind, string2path(home), qEnvironmentVariable("WINEPREFIX").toStdString());
+}
+
 }
 
 DelayedTimer::DelayedTimer(int thresholdMs, std::function<void()> onShot, QObject* parent)
@@ -109,6 +122,9 @@ UIController::UIController(ConfigHandler& configHandler)
     });
 
     auto& cfg = m_configHandler.m_appConfig;
+
+    if (!s_isWindows)
+        detectWineOnStartup();
 
     if (s_isWindows || cfg.m_userHome.empty())
         cfg.m_userHome = getUserHomeDefault().toStdString();
@@ -220,7 +236,7 @@ void UIController::disableAutoSave()
 
 void UIController::browseToAppSettings()
 {
-    QProcess::startDetached("explorer.exe", QStringList() << QDir::toNativeSeparators(QString::fromStdString(path2string(m_configHandler.m_appData))));
+    Mernel::showFolderInFileManager(m_configHandler.m_appData);
 }
 
 QString UIController::urlToPath(const QUrl& url) const
@@ -243,6 +259,67 @@ QString UIController::detectPath()
     auto& cfg         = m_configHandler.m_appConfig;
     bool  resurrected = cfg.m_versionMajor == 1;
     return QString::fromStdString(resurrected ? cfg.m_installLocationD2R : cfg.m_installLocationLegacy);
+}
+
+void UIController::detectWine()
+{
+    m_wineMatches = findWineGamesFor(m_configHandler.m_appConfig);
+    if (m_wineMatches.empty()) {
+        emit statusUpdate(tr("No Wine prefix with Diablo II found. See the log for where it looked."));
+        return;
+    }
+    if (m_wineMatches.size() == 1) {
+        applyWineMatch(0);
+        return;
+    }
+
+    const auto   current     = (string2path(m_configHandler.m_appConfig.m_userHome) / "").lexically_normal();
+    int          preselected = 0;
+    QVariantList matches;
+    for (size_t i = 0; i < m_wineMatches.size(); ++i) {
+        const auto& match = m_wineMatches[i];
+        matches << QVariantMap{
+            { "prefix", QString::fromStdString(path2string(match.prefix)) },
+            { "installPath", QString::fromStdString(path2string(match.installPath)) },
+            { "hasSavedGames", match.hasSavedGames },
+            { "hasBattleNetConfig", match.hasBattleNetConfig },
+        };
+        if ((match.userHome / "").lexically_normal() == current)
+            preselected = static_cast<int>(i);
+    }
+    emit winePrefixChoice(matches, preselected);
+}
+
+void UIController::applyWineMatch(int index)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_wineMatches.size())
+        return;
+
+    const auto& match = m_wineMatches[index];
+    auto&       cfg   = m_configHandler.m_appConfig;
+    cfg.m_userHome    = path2string(match.userHome);
+    cfg.m_inputPath   = ensureTrailingSlash(path2string(match.installPath));
+    cfg.notifyChangeInner();
+    emit statusUpdate(tr("Found Diablo II in %1").arg(QString::fromStdString(path2string(match.prefix))));
+}
+
+void UIController::detectWineOnStartup()
+{
+    auto& cfg = m_configHandler.m_appConfig;
+    if (isExistingDir(cfg.m_userHome))
+        return;
+
+    const auto matches = findWineGamesFor(cfg);
+    if (matches.size() == 1) {
+        cfg.m_userHome = path2string(matches[0].userHome);
+        if (!isExistingDir(cfg.m_inputPath))
+            cfg.m_inputPath = ensureTrailingSlash(path2string(matches[0].installPath));
+    } else if (matches.size() > 1) {
+        // The UI isn't up yet; post the hint once the event loop runs.
+        QTimer::singleShot(0, this, [this] {
+            emit statusUpdate(tr("Several Wine prefixes contain Diablo II: press Detect! to choose."));
+        });
+    }
 }
 
 void UIController::updateUndoAction()
@@ -304,6 +381,60 @@ void UIController::makeShortCut(QString arg)
     if (!env.init(cfg))
         return;
 
+    if (!s_isWindows) {
+        const auto location = [](QStandardPaths::StandardLocation type) {
+            return string2path(QStandardPaths::writableLocation(type).toStdString());
+        };
+
+        ShortcutRequest request;
+        request.userHome       = string2path(cfg.m_userHome);
+        request.exe            = env.inputPath / (env.isLegacy ? "Diablo II.exe" : "D2R.exe");
+        request.args           = arg.toStdString();
+        request.runnerTemplate = cfg.m_runnerTemplate;
+        request.modName        = cfg.m_modname;
+        request.appsDir        = location(QStandardPaths::ApplicationsLocation);
+        request.desktopDir     = location(QStandardPaths::DesktopLocation);
+        request.iconPath       = location(QStandardPaths::GenericDataLocation) / "d2modgen" / "icons" / "logo.png";
+        request.homeDir        = location(QStandardPaths::HomeLocation);
+        request.findExecutable = [](const std::string& program) {
+            return string2path(QStandardPaths::findExecutable(QString::fromStdString(program)).toStdString());
+        };
+
+        // The launcher icon is the app logo from the resources; Icon= needs it as a file on disk.
+        const QString iconFile = QString::fromStdString(path2string(request.iconPath));
+        QDir().mkpath(QFileInfo(iconFile).path());
+        QFile::remove(iconFile);
+        if (!QFile::copy(":/assets/logo.png", iconFile))
+            request.iconPath.clear();
+
+        const ShortcutResult result = makeShortcut(request);
+        switch (result.status) {
+            case ShortcutResult::Status::NoPreset:
+                emit statusUpdate(tr("No runner preset for this Wine prefix. Enter a runner template, or use \"Set launch to mod\"."));
+                return;
+            case ShortcutResult::Status::RunnerNotFound:
+                emit statusUpdate(tr("%1 was not found. Install it or edit the runner template.").arg(QString::fromStdString(result.runner)));
+                return;
+            case ShortcutResult::Status::WriteFailed:
+                emit statusUpdate(tr("Failed to write shortcut"));
+                return;
+            case ShortcutResult::Status::Written:
+                break;
+        }
+
+        QStringList written;
+        for (const auto& file : result.written) {
+            Logger() << "Short cut: " << file;
+            written << QString::fromStdString(path2string(file));
+        }
+        // GNOME only starts launchers on the Desktop once they are trusted.
+        if (result.written.size() > 1)
+            QProcess::startDetached("gio", { "set", written.last(), "metadata::trusted", "true" });
+
+        emit statusUpdate(tr("Shortcut created: %1").arg(written.join(", ")));
+        return;
+    }
+
     const bool        legacy = env.isLegacy;
     auto              d2path = env.inputPath;
     const std::string desk   = cfg.m_userHome + "Desktop/";
@@ -317,6 +448,12 @@ void UIController::makeShortCut(QString arg)
     }
 
     emit statusUpdate(tr("Shortcut created!"));
+}
+
+QString UIController::runnerPreset(QString userHome, bool legacy)
+{
+    const auto home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toStdString();
+    return QString::fromStdString(D2ModGen::runnerPreset(string2path(userHome.toStdString()), legacy, string2path(home)));
 }
 
 void UIController::copyModSettings()
