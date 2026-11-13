@@ -30,7 +30,12 @@ WidgetCommonControl {
         Button {
             visible: root.showDetect // not ideal but...
             text: qsTr("Detect!")
-            onClicked: root.value_key.value = appui.detectPath()
+            onClicked: {
+                if (Qt.platform.os === "linux")
+                    appui.detectWine();
+                else
+                    root.value_key.value = appui.detectPath();
+            }
         }
         Button {
             text: qsTr("Browse...")

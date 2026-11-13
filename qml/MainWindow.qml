@@ -7,6 +7,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Fusion
 import "Modules"
+import "Widgets"
 
 ApplicationWindow {
     id: window
@@ -161,6 +162,9 @@ ApplicationWindow {
                     function onStatusUpdate(status) {
                         statusLabel.text = Qt.formatDateTime(new Date(), "[HH:mm:ss] ") + status;
                     }
+                    function onWinePrefixChoice(matches, preselected) {
+                        winePrefixDialog.show(matches, preselected);
+                    }
                 }
             }
 
@@ -171,5 +175,9 @@ ApplicationWindow {
                 onClicked: appui.generate()
             }
         }
+    }
+
+    WinePrefixDialog {
+        id: winePrefixDialog
     }
 }
