@@ -128,6 +128,11 @@ Prerequisites:
 
 If requirements are met, then go "cmake/build/build install". For windows platform, "build install" creates install in binary directory with all runtime dependencies.
 
+On Linux (Qt 6.8+ and CMake 3.31+):  
+Arch: `sudo pacman -S cmake ninja gcc zlib qt6-base qt6-declarative qt6-svg qt6-tools`  
+Debian 13 / Ubuntu 25.04+: `sudo apt install cmake ninja-build g++ zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-svg-dev qt6-tools-dev qt6-tools-dev-tools qml6-module-qtquick-controls qml6-module-qtquick-layouts qml6-module-qtquick-dialogs`  
+Ubuntu 24.04 ships CMake 3.28 and Qt 6.4, which are too old: get CMake from Kitware's apt repository and Qt from aqtinstall.
+
 # Contribute
 1. follow clang-format rules in `src/` directory;
 2. Generator logic is in `src/CoreLib/Modules/`;
